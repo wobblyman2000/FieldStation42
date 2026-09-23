@@ -1,3 +1,5 @@
+import os
+os.environ.setdefault("GLFW_PLATFORM", "x11")
 import glfw
 from OpenGL.GL import *
 from PIL import Image, ImageDraw, ImageFont

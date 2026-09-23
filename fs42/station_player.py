@@ -219,8 +219,12 @@ class StationPlayer:
         liquid_init_time = time.perf_counter() - start_time
         self._l.info(f"LiquidManager() initialization took {liquid_init_time:.3f} seconds")
 
-    def show_text(self, text, duration=4):
-        self.mpv.command("show-text", text, duration)
+    def show_text(self, text, duration=5000):
+        ms_duration = int(duration * 1000) if duration < 100 else int(duration)
+        try:
+            self.mpv.command("show-text", text, ms_duration)
+        except Exception as e:
+            self._l.debug(f"Could not execute show-text on mpv: {e}")
 
     def mpv_runtime_command(self, action):
         """Run a small set of user-facing mpv runtime commands."""
@@ -649,7 +653,7 @@ class StationPlayer:
                         net_name = self.station_config.get("network_name", "")
                         show_name = title if title and title != "content" else Path(file_path).stem
                         osd_text = f"CH {ch_num}  {net_name}\n{show_name}"
-                        self.show_text(osd_text, duration=4)
+                        self.show_text(osd_text, duration=5000)
                     except Exception as err:
                         self._l.debug(f"Could not show MPV OSD: {err}")
 
