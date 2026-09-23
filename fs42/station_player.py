@@ -43,6 +43,70 @@ from fs42.slot_reader import SlotReader
 logging.basicConfig(format="%(asctime)s %(levelname)s:%(name)s:%(message)s", level=logging.INFO)
 
 
+def parse_show_and_episode_info(file_path, fallback_title=None):
+    if not file_path or not isinstance(file_path, str) or file_path.startswith(('http://', 'https://', 'rtsp://', 'rtmp://')):
+        return fallback_title or ''
+
+    stem = Path(file_path).stem
+
+    # Pattern 1: S01E02 / S1E3 / S03E18 / S1E01
+    match = re.search(r'^(.*?)[._\s\-]*S(\d+)\s*E(\d+)[._\s\-]*(.*)$', stem, re.IGNORECASE)
+    
+    # Pattern 2: 1x05 / 2x11
+    if not match:
+        match = re.search(r'^(.*?)[._\s\-]*(\d+)x(\d+)[._\s\-]*(.*)$', stem, re.IGNORECASE)
+
+    # Pattern 3: Season 1 Episode 2
+    if not match:
+        match = re.search(r'^(.*?)[._\s\-]*Season\s*(\d+)[._\s\-]*(?:Episode|Ep)?\s*(\d+)[._\s\-]*(.*)$', stem, re.IGNORECASE)
+
+    if match:
+        prefix, s_num, e_num, suffix = match.groups()
+        season_num = int(s_num)
+        ep_num = int(e_num)
+        
+        # Clean show name
+        show_name = prefix.strip(' -_.()[]')
+        if not show_name and fallback_title:
+            show_name = fallback_title
+        if not show_name:
+            parent = Path(file_path).parent.name
+            if not parent.lower().startswith('season') and parent.lower() != 'content':
+                show_name = parent
+
+        # Clean episode name / suffix
+        ep_name = suffix.strip(' -_.')
+        ep_name = re.sub(r'\s*[\(\[]?(?:HQ|1080p|720p|4k|x264|x265)[\)\]]?', '', ep_name, flags=re.IGNORECASE).strip(' -_.()')
+
+        if ep_name:
+            ep_str = f"Season {season_num}, Episode {ep_num} - {ep_name}"
+        else:
+            ep_str = f"Season {season_num}, Episode {ep_num}"
+
+        if show_name:
+            return f"{show_name}\n{ep_str}"
+        return ep_str
+
+    # Check parent folder for Season X if filename didn't match
+    parent = Path(file_path).parent.name
+    s_match = re.search(r'Season\s*(\d+)', parent, re.IGNORECASE)
+    if s_match:
+        season_num = int(s_match.group(1))
+        grandparent = Path(file_path).parent.parent.name
+        show_name = grandparent if grandparent and grandparent.lower() != 'catalog' else (fallback_title or '')
+        
+        e_match = re.search(r'(?:Ep|Episode|\b)(\d+)\b', stem, re.IGNORECASE)
+        ep_num = int(e_match.group(1)) if e_match else ''
+        ep_name = stem.strip(' -_.')
+        
+        ep_str = f"Season {season_num}, Episode {ep_num} - {ep_name}" if ep_num else f"Season {season_num} - {ep_name}"
+        if show_name:
+            return f"{show_name}\n{ep_str}"
+        return ep_str
+
+    return fallback_title or stem
+
+
 def update_status_socket(
     status,
     network_name,
@@ -535,6 +599,10 @@ class StationPlayer:
                 self._l.debug(f"%%%Attempting to play {file_path}")
                 self.current_playing_file_path = file_path
 
+                display_title = parse_show_and_episode_info(file_path, fallback_title=title)
+                if not display_title:
+                    display_title = title if title and title != "content" else Path(file_path).stem
+
                 if self.station_config:
                     self._l.debug("Got station config, updating status socket")
                     if "date_time_format" in StationManager().server_conf:
@@ -550,7 +618,7 @@ class StationPlayer:
                         "playing",
                         self.station_config["network_name"],
                         self.station_config["channel_number"],
-                        title,
+                        display_title,
                         timestamp=ts_format,
                         duration=duration,
                         file_path=file_path,
@@ -654,8 +722,8 @@ class StationPlayer:
                     try:
                         ch_num = self.station_config.get("channel_number", "")
                         net_name = self.station_config.get("network_name", "")
-                        show_name = title if title and title != "content" else Path(file_path).stem
-                        osd_text = f"CH {ch_num}  {net_name}\n{show_name}"
+                        show_title = display_title or (title if title and title != "content" else Path(file_path).stem)
+                        osd_text = f"CH {ch_num}  {net_name}\n{show_title}"
                         self.show_text(osd_text, duration=5000)
                     except Exception as err:
                         self._l.debug(f"Could not show MPV OSD: {err}")
