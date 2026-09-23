@@ -643,6 +643,16 @@ class StationPlayer:
                     except Exception as e:
                         self._l.warning(f"Could not start NFO overlay: {e}")
 
+                if self.station_config:
+                    try:
+                        ch_num = self.station_config.get("channel_number", "")
+                        net_name = self.station_config.get("network_name", "")
+                        show_name = title if title and title != "content" else Path(file_path).stem
+                        osd_text = f"CH {ch_num}  {net_name}\n{show_name}"
+                        self.show_text(osd_text, duration=4)
+                    except Exception as err:
+                        self._l.debug(f"Could not show MPV OSD: {err}")
+
                 return True
             else:
                 self._l.error(

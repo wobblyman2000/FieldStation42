@@ -1,3 +1,5 @@
+import os
+os.environ.setdefault("GLFW_PLATFORM", "x11")
 import json
 import re
 import sys
