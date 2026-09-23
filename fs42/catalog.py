@@ -214,7 +214,11 @@ class ShowCatalog:
         bump_overrides = {}
         commercial_overrides = {}
         for day in DAYS:
-            slots = self.config[day]
+            slots = self.config.get(day, {})
+            if isinstance(slots, str):
+                slots = self.config.get("day_templates", {}).get(slots, {})
+            if not isinstance(slots, dict):
+                continue
             for k in slots:
                 # Validate that slots[k] is a dictionary
                 if not isinstance(slots[k], dict):
@@ -589,7 +593,10 @@ class ShowCatalog:
 
     def find_bump(self, seconds, when, position=None, bump_tag=None, lookahead=None):
         if not bump_tag:
-            bump_tag = self.config["bump_dir"]
+            bump_tag = self.config.get("bump_dir", None)
+
+        if not bump_tag:
+            return None
 
         if position:
             pre_key = f"{bump_tag}-{ShowCatalog.prebump}"
@@ -685,28 +692,53 @@ class ShowCatalog:
                     strategy = autoconf["strategy"]
 
                 autos = AutoBumpAgent.gen_bumps(self.config)
+            start_candidate = self.find_bump(target_duration, when, ShowCatalog.prebump, bump_tag=bump_dir,
+                                             lookahead=lookahead)
+            if start_candidate:
+                remaining -= start_candidate.duration
 
-                start_candidate = autos.get("message_bump", None)
-                end_candidate = autos.get("next_bump", None)
+            end_candidate = self.find_bump(target_duration, when, ShowCatalog.postbump, bump_tag=bump_dir,
+                                           lookahead=lookahead)
+            if end_candidate:
+                remaining -= end_candidate.duration
 
-                if strategy == "start":
-                    end_candidate = self.find_bump(target_duration, when, ShowCatalog.prebump, bump_tag=bump_dir,
-                                                   lookahead=lookahead)
-                elif strategy == "end":
+            # fallback to regular bump if postbump wasn't found
+            if not end_candidate and start_candidate:
+                end_candidate = self.find_bump(remaining, when, position=None, bump_tag=bump_dir,
+                                               lookahead=lookahead)
+                if end_candidate:
+                    remaining -= end_candidate.duration
+
+            if not start_candidate and not end_candidate:
+                # try finding a regular bump
+                end_candidate = self.find_bump(target_duration, when, ShowCatalog.prebump, bump_tag=bump_dir,
+                                               lookahead=lookahead)
+                if not end_candidate:
                     start_candidate = self.find_bump(target_duration, when, ShowCatalog.prebump, bump_tag=bump_dir,
                                                      lookahead=lookahead)
 
-            remaining -= start_candidate.duration
-            remaining -= end_candidate.duration
+                if end_candidate:
+                    remaining -= end_candidate.duration
+                if start_candidate:
+                    remaining -= start_candidate.duration
 
-        # aim for lower and should average close over time since the returned can be larger
-        while remaining > (target_duration * 0.1):
-            if not self.config["commercial_free"]:
-                candidate = self.find_commercial(target_duration, when, commercial_dir)
-            else:
-                candidate = self.find_bump(target_duration, when, None, bump_dir, lookahead=lookahead)
-            remaining -= candidate.duration
-            reels.append(candidate)
+        # Fill with commercials if not commercial free
+        if not self.config.get("commercial_free", False):
+            while remaining > 0:
+                try:
+                    c = self.find_commercial(remaining, when, commercial_dir)
+                    reels.append(c)
+                    remaining -= c.duration
+                except NoFillerContentFound:
+                    break
+                except MatchingContentNotFound:
+                    # try a bump to fill space
+                    candidate = self.find_bump(remaining, when, "fill", bump_tag=bump_dir)
+                    if candidate:
+                        reels.append(candidate)
+                        remaining -= candidate.duration
+                    else:
+                        break
 
         return ReelBlock(start_candidate, reels, end_candidate)
 
@@ -714,7 +746,7 @@ class ShowCatalog:
 
     def make_reel_fill(self, when, length, use_bumpers=True, commercial_dir=None, bump_dir=None, strict_count=None,
                        lookahead=None):
-        target_break_duration = self.config["break_duration"]
+        target_break_duration = self.config.get("break_duration", 120)
 
         strategy = self.config.get("break_strategy", None)
 
@@ -754,7 +786,7 @@ class ShowCatalog:
                         f"Could not find matching content for {remaining} seconds - will attempt to fill with BRB"
                     )
 
-                if block and (remaining - block.duration) > 0:
+                if block and block.duration > 0 and (remaining - block.duration) >= 0:
                     remaining -= block.duration
                     blocks.append(block)
 

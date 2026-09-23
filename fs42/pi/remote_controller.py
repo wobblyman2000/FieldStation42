@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from evdev import InputDevice, ecodes
+from evdev import InputDevice, ecodes, list_devices
 import requests
 import os
 import subprocess
@@ -9,6 +9,7 @@ import sys
 import time
 import json
 import argparse
+import select
 
 
 # ======================================
@@ -38,27 +39,26 @@ USE_SYSTEMCTL = True
 # 'a'-'z', 'leftshift', 'rightshift', 'leftctrl', 'rightctrl', 'leftalt', 'rightalt'
 DEFAULT_KEY_MAPPINGS = {
     # Remote control functions
-    'show_guide': 'home',        # Show program guide
-    'volume_up': 'right',        # Increase volume
-    'volume_down': 'left',       # Decrease volume
-    'channel_up': 'up',          # Next channel
-    'channel_down': 'down',      # Previous channel
-    'last_channel': 'backspace', # Switch to last channel
-    'mute': 'm',                 # Mute/unmute volume
-    'toggle_subtitles': 'v',      # Toggle subtitle visibility in mpv
-    'cycle_subtitles': 'j',       # Cycle subtitle tracks in mpv
-    'cycle_audio': 'a',           # Cycle audio tracks in mpv
-    'power_stop': 'end',         # Stop player (power button)
-    'exit': 'esc',               # Exit remote controller
-
-    # Alternative mappings (uncomment to use):
-    # 'power_stop': 'space',     # Use spacebar for power/stop
-    # 'show_guide': 'g',         # Use 'g' key for guide
-    # 'volume_up': 'pageup',     # Use page up for volume up
-    # 'volume_down': 'pagedown', # Use page down for volume down
+    'show_guide': ['home', 'g', 'c', 'guide', 'menu', 'info'],        # Show program guide
+    'volume_up': ['right', 'volumeup'],                            # Increase volume
+    'volume_down': ['left', 'volumedown'],                          # Decrease volume
+    'channel_up': ['up', 'pageup', 'channelup'],                    # Next channel
+    'channel_down': ['down', 'pagedown', 'channeldown'],            # Previous channel
+    'last_channel': ['backspace', 'delete', 'b'],                   # Switch to last channel
+    'mute': ['m', 'mute'],                                          # Mute/unmute volume
+    'toggle_subtitles': ['v'],                                      # Toggle subtitle visibility in mpv
+    'cycle_subtitles': ['j'],                                       # Cycle subtitle tracks in mpv
+    'cycle_audio': ['a'],                                           # Cycle audio tracks in mpv
+    'power_stop': ['end', 'space', 'p', 'power'],                   # Stop player (power button)
+    'exit': ['esc', 'q'],                                           # Exit remote controller
 }
 SETTINGS_FILE = "runtime/remote_controller.json"
 KEY_MAPPINGS = DEFAULT_KEY_MAPPINGS.copy()
+
+def is_key_matched(key_name, mapped_key):
+    if isinstance(mapped_key, (list, tuple, set)):
+        return key_name in mapped_key
+    return key_name == mapped_key
 
 if os.path.exists(SETTINGS_FILE):
     print(f"Loading settings from {SETTINGS_FILE}")
@@ -76,7 +76,7 @@ if os.path.exists(SETTINGS_FILE):
             file_mappings = remote_settings["key_mappings"]
             KEY_MAPPINGS = file_mappings.copy()
             for function, key in DEFAULT_KEY_MAPPINGS.items():
-                if function not in KEY_MAPPINGS and key not in KEY_MAPPINGS.values():
+                if function not in KEY_MAPPINGS:
                     KEY_MAPPINGS[function] = key
     except Exception as e:
         print(f"Error loading settings from file: {e}")
@@ -497,52 +497,70 @@ def find_input_device(device_spec=None):
         return None
 
     print("Available input devices:")
-    for i, (path, name) in enumerate(devices):
-        print(f"{i}: {name} ({path})")
+def find_input_devices(device_spec=None):
+    """Find input device(s) based on specification or auto-detect all keyboards and remotes"""
+    try:
+        all_paths = list_devices()
+        devices = [InputDevice(path) for path in all_paths]
+    except Exception as e:
+        print(f"Error accessing input devices: {e}")
+        return []
 
-    # If device_spec is provided, try to match it
+    if not devices:
+        print("No input devices found!")
+        return []
+
+    print("\nAvailable input devices:")
+    for i, dev in enumerate(devices):
+        print(f"{i}: {dev.name} ({dev.path})")
+
+    # If specific path given
     if device_spec:
-        # Check if it's a direct device path
         if device_spec.startswith('/dev/input/'):
             if os.path.exists(device_spec):
                 print(f"Using specified device path: {device_spec}")
-                return device_spec
+                return [device_spec]
             else:
                 print(f"Warning: Device path '{device_spec}' not found, falling back to auto-detect")
 
-        # Check if it's a numeric index
         elif device_spec.isdigit():
             index = int(device_spec)
             if 0 <= index < len(devices):
-                path, name = devices[index]
-                print(f"Using device at index {index}: {name} ({path})")
-                return path
+                dev = devices[index]
+                print(f"Using device at index {index}: {dev.name} ({dev.path})")
+                return [dev.path]
             else:
                 print(f"Warning: Device index {index} out of range (0-{len(devices)-1}), falling back to auto-detect")
 
-        # Treat it as a name pattern
         else:
-            device_spec = device_spec.lower()
+            spec_lower = device_spec.lower()
+            matched = [dev.path for dev in devices if spec_lower in dev.name.lower()]
+            if matched:
+                print(f"Found requested device(s) matching '{device_spec}': {len(matched)} device(s)")
+                return matched
 
-    # If no spec provided, default to flirc
-    if not device_spec:
-        device_spec = "flirc"
-        default = True
+    # Auto-detect mode: return ALL connected keyboard & remote control input devices
+    matched_paths = []
+    for dev in devices:
+        name_lower = dev.name.lower()
+        if any(ex in name_lower for ex in ['power button', 'sleep button', 'video bus']):
+            continue
 
-    # Try to match requested device
-    for path, name in devices:
-        if device_spec.lower() in name.lower():
-            print(f"Found device: {name}")
-            return path
+        caps = dev.capabilities()
+        if ecodes.EV_KEY in caps:
+            keys = caps[ecodes.EV_KEY]
+            if ecodes.KEY_A in keys or ecodes.KEY_ENTER in keys or ecodes.KEY_1 in keys:
+                print(f"Matched keyboard/remote device: {dev.name} ({dev.path})")
+                matched_paths.append(dev.path)
+            elif any(k in name_lower for k in ['keyboard', 'flirc', 'remote', 'control']):
+                print(f"Matched named device: {dev.name} ({dev.path})")
+                matched_paths.append(dev.path)
 
-    # If user explicitly requested device, do NOT fallback
-    if default is False and (device_spec or os.getenv('FS42_INPUT_DEVICE')):
-        print(f"Device '{device_spec}' not found yet. Waiting...")
-        return None
+    if not matched_paths and devices:
+        print(f"Fallback to first device: {devices[0].name} ({devices[0].path})")
+        matched_paths = [devices[0].path]
 
-    # Otherwise fallback to first keyboard device
-    print(f"Using default device: {devices[0][1]}")
-    return devices[0][0]
+    return matched_paths
 
 def get_key_name_from_code(key_code):
     """Convert evdev key code to readable key name"""
@@ -555,6 +573,16 @@ def get_key_name_from_code(key_code):
         ecodes.KEY_BACKSPACE: 'backspace', ecodes.KEY_DELETE: 'delete',
         ecodes.KEY_INSERT: 'insert', ecodes.KEY_PAGEUP: 'pageup',
         ecodes.KEY_PAGEDOWN: 'pagedown',
+        ecodes.KEY_VOLUMEUP: 'volumeup',
+        ecodes.KEY_VOLUMEDOWN: 'volumedown',
+        ecodes.KEY_MUTE: 'mute',
+        ecodes.KEY_CHANNELUP: 'channelup',
+        ecodes.KEY_CHANNELDOWN: 'channeldown',
+        ecodes.KEY_POWER: 'power',
+        ecodes.KEY_BACK: 'backspace',
+        ecodes.KEY_HOMEPAGE: 'home',
+        ecodes.KEY_MENU: 'menu',
+        ecodes.KEY_INFO: 'info',
         ecodes.KEY_F1: 'f1', ecodes.KEY_F2: 'f2', ecodes.KEY_F3: 'f3',
         ecodes.KEY_F4: 'f4', ecodes.KEY_F5: 'f5', ecodes.KEY_F6: 'f6',
         ecodes.KEY_F7: 'f7', ecodes.KEY_F8: 'f8', ecodes.KEY_F9: 'f9',
@@ -565,33 +593,11 @@ def get_key_name_from_code(key_code):
     }
 
     # Add letter keys a-z using ecodes constants
-    key_map[ecodes.KEY_A] = 'a'
-    key_map[ecodes.KEY_B] = 'b'
-    key_map[ecodes.KEY_C] = 'c'
-    key_map[ecodes.KEY_D] = 'd'
-    key_map[ecodes.KEY_E] = 'e'
-    key_map[ecodes.KEY_F] = 'f'
-    key_map[ecodes.KEY_G] = 'g'
-    key_map[ecodes.KEY_H] = 'h'
-    key_map[ecodes.KEY_I] = 'i'
-    key_map[ecodes.KEY_J] = 'j'
-    key_map[ecodes.KEY_K] = 'k'
-    key_map[ecodes.KEY_L] = 'l'
-    key_map[ecodes.KEY_M] = 'm'
-    key_map[ecodes.KEY_N] = 'n'
-    key_map[ecodes.KEY_O] = 'o'
-    key_map[ecodes.KEY_P] = 'p'
-    key_map[ecodes.KEY_Q] = 'q'
-    key_map[ecodes.KEY_R] = 'r'
-    key_map[ecodes.KEY_S] = 's'
-    key_map[ecodes.KEY_T] = 't'
-    key_map[ecodes.KEY_U] = 'u'
-    key_map[ecodes.KEY_V] = 'v'
-    key_map[ecodes.KEY_W] = 'w'
-    key_map[ecodes.KEY_X] = 'x'
-    key_map[ecodes.KEY_Y] = 'y'
-    key_map[ecodes.KEY_Z] = 'z'
-    
+    for char_code in range(ord('a'), ord('z') + 1):
+        attr = f"KEY_{chr(char_code).upper()}"
+        if hasattr(ecodes, attr):
+            key_map[getattr(ecodes, attr)] = chr(char_code)
+
     return key_map.get(key_code)
 
 
@@ -599,7 +605,7 @@ def handle_key_name(key_name):
     """Handle a key press by key name (common logic for evdev and test mode)"""
     # Check mappings and call appropriate function
     for function_name, mapped_key in KEY_MAPPINGS.items():
-        if key_name == mapped_key:
+        if is_key_matched(key_name, mapped_key) or key_name == function_name:
             print(f"DEBUG: Matched function: {function_name}")
             if function_name == 'show_guide':
                 show_guide_pressed()
@@ -629,7 +635,7 @@ def handle_key_name(key_name):
             elif function_name == 'exit':
                 print("Exiting remote controller...")
                 return False
-            break
+            return True
 
     if key_name in exec_mappings:
         try:
@@ -644,15 +650,22 @@ def handle_key_name(key_name):
 
 def handle_key_event(event):
     """Handle key press events from evdev"""
-    if event.type == ecodes.EV_KEY and event.value == 1:  # Key press (not release)
+    if event.type == ecodes.EV_KEY and event.value in (1, 2):  # Key press or repeat
         key_code = event.code
 
-        # Number keys (1-9, 0) - always handled the same way
+        # Number keys (1-9, 0) and Keypad keys (KP1-KP9, KP0)
         if key_code >= ecodes.KEY_1 and key_code <= ecodes.KEY_9:
             number = key_code - ecodes.KEY_1 + 1
             number_pressed(number)
             return True
         elif key_code == ecodes.KEY_0:
+            number_pressed(0)
+            return True
+        elif key_code >= ecodes.KEY_KP1 and key_code <= ecodes.KEY_KP9:
+            number = key_code - ecodes.KEY_KP1 + 1
+            number_pressed(number)
+            return True
+        elif key_code == ecodes.KEY_KP0:
             number_pressed(0)
             return True
         elif key_code in (ecodes.KEY_ENTER, ecodes.KEY_KPENTER):
@@ -777,62 +790,74 @@ Environment variables:
 
     # If --list-devices, just show devices and exit
     if args.list_devices:
-        find_input_device(device_spec)
+        find_input_devices(device_spec)
         return
 
     # Find input device
-    if device_spec != "test":
-        device_path = find_input_device(device_spec)
-    else:
+    if device_spec == "test":
         test_mode()
+        return
 
     print("Press ESC to exit.")
-    
-    first_run = True
-    while True:
-        try:
-            if not device_path:
-                print("Selected input not found. Retrying in 5 seconds...")
-                time.sleep(5)
-                # Check if the device has reconnected
-                device_path = find_input_device(device_spec)
 
-                if not device_path:
+    while True:
+        device_paths = find_input_devices(device_spec)
+        if not device_paths:
+            print("No matching input devices found. Retrying in 5 seconds...")
+            time.sleep(5)
+            continue
+
+        open_devices = []
+        for path in device_paths:
+            try:
+                open_devices.append(InputDevice(path))
+            except Exception as e:
+                print(f"Could not open device {path}: {e}")
+
+        if not open_devices:
+            print("Could not open any input devices. Retrying in 5 seconds...")
+            time.sleep(5)
+            continue
+
+        print(f"Listening for remote control commands on {len(open_devices)} device(s):")
+        for dev in open_devices:
+            print(f"  - {dev.name} ({dev.path})")
+
+        fd_map = {dev.fd: dev for dev in open_devices}
+
+        try:
+            while True:
+                r, w, x = select.select(list(fd_map.keys()), [], [], 2.0)
+                if not r:
                     continue
 
-            device = InputDevice(device_path)
+                for fd in r:
+                    dev = fd_map[fd]
+                    try:
+                        for event in dev.read():
+                            if not handle_key_event(event):
+                                return
+                    except (OSError, IOError) as err:
+                        print(f"Device error on {dev.name}: {err}")
+                        del fd_map[fd]
+                        try:
+                            dev.close()
+                        except Exception:
+                            pass
 
-            print(f"Listening for remote control commands from: {device.name}")
-
-            # Main event loop
-            for event in device.read_loop():
-                if not handle_key_event(event):
-                    return
-
-        except OSError as e:
-            # Bluetooth disconnect / USB unplug / device vanished
-            if e.errno == 19 or e.errno == 2:
-                print("Input device disconnected. Waiting for reconnection...")
-                time.sleep(5)
-            else:
-                print(f"Device error: {e}")
-                time.sleep(5)
-
-        except FileNotFoundError:
-            print("Input device missing. Waiting for reconnection...")
-            time.sleep(5)
+                if not fd_map:
+                    print("All devices disconnected. Re-scanning...")
+                    break
 
         except PermissionError:
             print("Permission denied. Try running with: sudo python3 remote_controller.py")
             sys.exit(1)
-
         except KeyboardInterrupt:
             print("\nExiting remote controller...")
-            sys.exit(1)
-            
+            sys.exit(0)
         except Exception as e:
-            print(f"Error: {e}")
-            sys.exit(1)
+            print(f"Error in main event loop: {e}")
+            time.sleep(2)
 
 
 

@@ -185,18 +185,30 @@ class LiquidManager(object):
 
         # get the block and get plan
         _block: LiquidBlock = self.get_programming_block(network_name, when)
+        if not _block or not _block.plan:
+            return None
+
+        total_plan_duration = sum(entry.duration for entry in _block.plan if entry.duration > 0)
+        if total_plan_duration <= 0:
+            return None
+
+        elapsed = max(0.0, (when - _block.start_time).total_seconds())
+        cycle_offset = elapsed % total_plan_duration
 
         # find index in block plan
         found_index = 0
-        current_mark = _block.start_time
+        current_mark = 0.0
         for entry in _block.plan:
-            next_mark = current_mark + datetime.timedelta(seconds=entry.duration)
-            if next_mark > when:
+            next_mark = current_mark + entry.duration
+            if next_mark > cycle_offset:
                 # then this is the index - calc offset
-                diff = when - current_mark
-                return PlayPoint(found_index, diff.total_seconds(), _block.plan, _block.title)
+                diff = cycle_offset - current_mark
+                return PlayPoint(found_index, diff, _block.plan, _block.title)
             current_mark = next_mark
             found_index += 1
+
+        last_index = len(_block.plan) - 1
+        return PlayPoint(last_index, max(0.0, _block.plan[last_index].duration - 0.1), _block.plan, _block.title)
 
     def print_schedule(self, network_name, go_deep=False):
         for _block in self.schedules[network_name]:

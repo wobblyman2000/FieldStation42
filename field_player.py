@@ -191,8 +191,8 @@ def main_loop(transition_fn, shutdown_queue=None, api_proc=None, schedule_lock=N
         if channel_conf["network_type"] == "guide" and not skip_play:
             logger.info("Starting the guide channel")
             player_state = player.show_guide(channel_conf)
-        elif channel_conf["network_type"] == "web" and not skip_play:
-            logger.info("Starting the web channel")
+        elif channel_conf["network_type"] in ("web", "ppv") and not skip_play:
+            logger.info("Starting the web/ppv channel")
             player_state = player.show_web(channel_conf)
         elif channel_conf["network_type"] == "executable" and not skip_play:
             logger.info("Starting an executable channel")
