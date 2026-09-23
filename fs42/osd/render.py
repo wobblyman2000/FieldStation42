@@ -154,10 +154,11 @@ def create_window():
     glfw.window_hint(glfw.TRANSPARENT_FRAMEBUFFER, glfw.TRUE)
     glfw.window_hint(glfw.DECORATED, glfw.FALSE)
     glfw.window_hint(glfw.FLOATING, glfw.TRUE)
-    glfw.window_hint(glfw.FOCUSED, glfw.TRUE)
+    glfw.window_hint(glfw.FOCUSED, glfw.FALSE)
     glfw.window_hint(glfw.AUTO_ICONIFY, glfw.FALSE)
     glfw.window_hint(glfw.RESIZABLE, glfw.FALSE)
-    window = glfw.create_window(mode.size.width, mode.size.height, "FieldStation42 OSD", monitor, None)
+    window = glfw.create_window(mode.size.width, mode.size.height, "FieldStation42 OSD", None, None)
+    glfw.set_window_pos(window, 0, 0)
     glfw.make_context_current(window)
     glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_DISABLED)
 

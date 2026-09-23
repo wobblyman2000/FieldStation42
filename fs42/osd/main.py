@@ -39,16 +39,16 @@ class VAlignment(Enum):
 
 class StatusDisplayConfig(BaseModel):
     socket_file: str = SOCKET_FILE
-    display_time: float = 2.0
+    display_time: float = 5.0
     halign: HAlignment = HAlignment.LEFT
     valign: VAlignment = VAlignment.TOP
-    format_text: str = "{channel_number} - {network_name}"
-    text_color: tuple[int, int, int, int] = (0, 255, 0, 200)
-    font_size: int = 40
+    format_text: str = "CH {channel_number}  {network_name}\n{title}"
+    text_color: tuple[int, int, int, int] = (0, 240, 255, 230)
+    font_size: int = 36
     expansion_factor: float = 1.0
     font: str | None = None
-    x_margin: float = 0.1
-    y_margin: float = 0.1
+    x_margin: float = 0.05
+    y_margin: float = 0.05
     delay: float = 0.0
 
 
@@ -89,12 +89,25 @@ class StatusDisplay(object):
             print(f"Unable to parse player status, {status}")
             return
 
-        # Check if status field changed (e.g., from "stopped" to "playing")
-        status_changed = self.last_status is None or status.get("status") != self.last_status.get("status")
+        if "file_path" in status and status["file_path"]:
+            filename = Path(status["file_path"]).stem
+            status["episode"] = filename
+            if not status.get("title") or status.get("title") == "content":
+                status["title"] = filename
+
+        # Check if status, channel, network, title or file_path changed
+        status_changed = (
+            self.last_status is None
+            or status.get("status") != self.last_status.get("status")
+            or status.get("channel_number") != self.last_status.get("channel_number")
+            or status.get("network_name") != self.last_status.get("network_name")
+            or status.get("title") != self.last_status.get("title")
+            or status.get("file_path") != self.last_status.get("file_path")
+        )
         self.last_status = status
 
         new_string = self.config.format_text.format_map(defaultdict(str, status))
-        # Reset timer if text changed OR if status changed (like stopped->playing)
+        # Reset timer if text changed OR if status/channel changed
         if new_string != self._text.string or status_changed:
             self.time_since_change = -self.config.delay
             if new_string:

@@ -2,8 +2,9 @@
 	{
 	    "halign": "LEFT",
 	    "valign": "TOP",
-	    "font_size": 40,
-	    "text_color": [ 0, 255, 0, 200 ],
-	    "format_text": "{channel_number} - {network_name}"
+	    "font_size": 36,
+	    "display_time": 5.0,
+	    "text_color": [ 0, 240, 255, 230 ],
+	    "format_text": "CH {channel_number}  {network_name}\n{title}"
 	}
 ]
