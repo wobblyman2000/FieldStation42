@@ -1083,6 +1083,8 @@ class StationPlayer:
                 content_type = getattr(entry, 'content_type', 'feature')  # Get content_type from entry, default to 'feature'
                 media_type = getattr(entry, 'media_type', 'video')  # Get media_type from entry, default to 'video'
                 worked = self.play_file(entry.path, file_duration=entry.duration, offset_seconds=total_skip, is_stream=is_stream, title=title, content_type=content_type, media_type=media_type)
+                if isinstance(worked, PlayerOutcome):
+                    return worked
                 if self._pending_response:
                     response = self._pending_response
                     self._pending_response = None
@@ -1111,6 +1113,7 @@ class StationPlayer:
                     self._l.info(f"Could not determine if clipped: {e}")
                     is_clipped = False
 
+                is_url_stream = isinstance(entry.path, str) and entry.path.startswith(("http://", "https://", "rtsp://", "rtmp://"))
                 if is_stream or is_url_stream:
                     self._l.info("Monitoring live stream playback...")
                     while True:

@@ -237,7 +237,7 @@ def main_loop(transition_fn, shutdown_queue=None, api_proc=None, schedule_lock=N
             station_cache = manager.stations
             stations_len = len(station_cache)
             #if we got anything, we'll tune up one channel
-            tune_up = True
+            tune_up = False
             # get the json payload
             if player_state.payload:
                 try:
@@ -258,7 +258,6 @@ def main_loop(transition_fn, shutdown_queue=None, api_proc=None, schedule_lock=N
                                     )
                                 else:
                                     channel_index = new_index
-
                             else:
                                 logger.critical(
                                     "Got direct tune command, but no channel specified"
@@ -272,21 +271,20 @@ def main_loop(transition_fn, shutdown_queue=None, api_proc=None, schedule_lock=N
                             found = False
                             while not found:
                                 channel_index -= 1
-                                
                                 if channel_index < 0:
-                                    channel_index = stations_len-1
+                                    channel_index = stations_len - 1
                                 if not station_cache[channel_index]["hidden"]:
                                     found = True
-
-
+                    else:
+                        tune_up = True
                 except Exception as e:
-                    logger.exception(e)
-                    logger.warning(
-                        "Got payload on channel change, but JSON convert failed"
-                    )
+                    logger.warning(f"Got payload on channel change, but JSON convert failed: {e}")
+                    tune_up = True
+            else:
+                tune_up = True
 
             if tune_up:
-                logger.info("Starting channel change")
+                logger.info("Starting channel up change")
                 found = False
                 while not found:
                     channel_index += 1
