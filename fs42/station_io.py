@@ -231,7 +231,9 @@ class StationIO:
 
         # Check that referenced files exist
         for to_check in StationIO.FILE_CHECKS:
-            if to_check in station_conf:
+            if to_check == "content_dir" and station_conf.get("network_type") in StationIO.NO_CATALOG:
+                continue
+            if to_check in station_conf and station_conf[to_check]:
                 if not os.path.exists(station_conf[to_check]):
                     self._l.error("*" * 60)
                     self._l.error(f"Error while checking configuration for {filename}")

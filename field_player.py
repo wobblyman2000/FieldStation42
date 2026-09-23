@@ -194,6 +194,16 @@ def main_loop(transition_fn, shutdown_queue=None, api_proc=None, schedule_lock=N
         elif channel_conf["network_type"] in ("web", "ppv") and not skip_play:
             logger.info("Starting the web/ppv channel")
             player_state = player.show_web(channel_conf)
+        elif channel_conf["network_type"] == "streaming" and not skip_play:
+            logger.info("Starting the streaming channel")
+            stream_url = channel_conf.get("stream_url", "")
+            if stream_url:
+                ok = player.play_file(stream_url, is_stream=True, title=channel_conf.get("network_name"))
+                player_state = PlayerOutcome(PlayerState.SUCCESS if ok else PlayerState.FAILED)
+            else:
+                logger.error("No stream_url provided for streaming channel")
+                time.sleep(2)
+                player_state = PlayerOutcome(PlayerState.FAILED)
         elif channel_conf["network_type"] == "executable" and not skip_play:
             logger.info("Starting an executable channel")
             player.stop_player()

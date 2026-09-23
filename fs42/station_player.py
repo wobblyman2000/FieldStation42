@@ -530,7 +530,8 @@ class StationPlayer:
 
     def play_file(self, file_path, file_duration=None, offset_seconds=None, is_stream=False, title="Unknown", content_type=None, media_type=None):
         try:
-            if os.path.exists(file_path) or is_stream or AutoBumpAgent.is_autobump_url(file_path):
+            is_url_stream = isinstance(file_path, str) and file_path.startswith(("http://", "https://", "rtsp://", "rtmp://"))
+            if is_stream or is_url_stream or os.path.exists(file_path) or AutoBumpAgent.is_autobump_url(file_path):
                 self._l.debug(f"%%%Attempting to play {file_path}")
                 self.current_playing_file_path = file_path
 
@@ -599,6 +600,8 @@ class StationPlayer:
                 
 
                 timeout_seconds = StationManager().server_conf.get("video_seek_timeout", 10)
+                if is_stream or is_url_stream:
+                    timeout_seconds = max(timeout_seconds, 30)
                 start_time = time.time()
 
                 while True:
@@ -1107,6 +1110,25 @@ class StationPlayer:
                 except Exception as e:
                     self._l.info(f"Could not determine if clipped: {e}")
                     is_clipped = False
+
+                if is_stream or is_url_stream:
+                    self._l.info("Monitoring live stream playback...")
+                    while True:
+                        time.sleep(0.1)
+                        response = self.input_check_fn()
+                        if response:
+                            if self.handle_runtime_command_outcome(response):
+                                continue
+                            if self.is_non_interrupting(response):
+                                continue
+                            if response.status == PlayerState.CHANNEL_CHANGE:
+                                return response
+                        try:
+                            if self.mpv.idle_active or (self.mpv.time_pos is None and getattr(self.mpv, 'playlist_count', 0) == 0):
+                                break
+                        except Exception:
+                            pass
+                    return True
 
                 if entry.duration:
                     self._l.info(f"Monitoring for: {entry.duration - initial_skip}")
