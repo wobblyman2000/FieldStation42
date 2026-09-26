@@ -46,8 +46,13 @@ class NamedSequence:
             entry = SequenceEntry(file)
             self.episodes.append(entry)
 
-        # explicitely sort them by file path for alpha-numeric ordering:
-        self.episodes = sorted(self.episodes, key=lambda entry: entry.fpath)
+        # Natural numerical sort helper for season & episode file paths (e.g. Season 1 -> Season 2, S01E01 -> S01E02)
+        def natural_sort_key(entry):
+            import re
+            return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(entry.fpath))]
+
+        # Explicitly sort episodes using natural numerical ordering:
+        self.episodes = sorted(self.episodes, key=natural_sort_key)
 
         # Clamp to the episode count - end_perc > 1 (misconfiguration) must not
         # push end_index past the last episode, or the completion check in
