@@ -490,9 +490,12 @@ class LiquidSchedule:
             # then there is an existing schedule
             start_building = current_end
         else:
-            # then there is no schedule, so start with today (but at midnight)
+            # then there is no schedule, so start with today (or current time if requested)
             now = datetime.datetime.now()
-            start_building = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            if self.conf.get("start_from_current_time") or self.conf.get("schedule_from_current_time") or self.conf.get("start_from_now"):
+                start_building = now
+            else:
+                start_building = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
         if "schedule_offset" in self.conf:
             # then we have an offset to apply

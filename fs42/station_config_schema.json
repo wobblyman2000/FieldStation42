@@ -44,6 +44,10 @@
           "type": "boolean",
           "description": "Whether the channel is commercial-free"
         },
+        "start_from_current_time": {
+          "type": "boolean",
+          "description": "When true, schedule generation starts from the current time instead of midnight today so Season 1 Episode 1 starts now."
+        },
         "break_duration": {
           "type": "integer",
           "description": "Duration of commercial breaks in seconds"
